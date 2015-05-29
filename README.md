@@ -1,1 +1,1 @@
-this progrem's function is make a chat with others on the different computer.
+The progrem's function is make a chat with each others on different computer.
