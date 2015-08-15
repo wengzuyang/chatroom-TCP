@@ -24,4 +24,6 @@ int main(int argc, char **argv)
        error_delt("connect failed", __LINE__);
    }
    str_cli(stdin, conn_fd);
+
+   return 0;
 } 

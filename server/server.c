@@ -39,7 +39,7 @@ int servinit ()
 
 	bzero (&servaddr, sizeof (servaddr));
 	servaddr.sin_family = AF_INET;
-	servaddr.sin_addr.s_addr = htonl (INADDR_ANY);
+	servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	servaddr.sin_port = htons (SERVER_PORT);
 
 	if (bind (listenfd, (struct sockaddr *) &servaddr, sizeof (servaddr)) == -1)
@@ -54,115 +54,91 @@ int servinit ()
 	return listenfd;
 }
 
-/*需要全局变量struct sockinfo env*/
-int msg_explain (char *msg, int len, struct envinfo *env)
+/* msg_explain
+ * 函数功能：解析消息
+ * 详细：判断群聊还好是私聊，如果为私聊则把消息头去掉
+ * 并返回要私聊的客户端sockfd
+ * */
+int msg_explain (char *msg, int len, struct clientinfo *clients, int maxfd)
 {								/*解析消息，判断是否是私聊 */
-	char ip[16];
-	char *pbuff;
-	int index;
+ 	char ip[16] = {0}, port[8] = {0};
+    char buff[MAXLINE] = {0};
+	int index, i;
 
 	if (msg[0] != '<')			/*没有<ipaddr>，说明群聊 */
 		return -1;
 
 	for (index = 1; index <= 16 && index < len; index++)
 	{
-		if (msg[index] != '>')
+ 		if (msg[index] != ':')      /*ip地址结束标记*/
 			ip[index - 1] = msg[index];
 		else
 			break;
 	}
+    if (msg[index] != ':')
+        return -1;
 	ip[index - 1] = '\0';
 
+    i = 0;
+    for (index = index + 1; index < len; index++)
+    {
+        if (msg[index] != '>')
+            port[i++] = msg[index];
+        else
+            break;
+    }
+    port[i] = '\0';
 	if (msg[index] != '>')		/*只有"<"标志而没有">" */
 		return -1;
 
-    /*获取除去IP地址后的消息*/
+    /*获取除去地址后的消息*/
+    i = 0;
 	for (index = index + 1; index < len; index++)
-		*pbuff++ = msg[index];
-	*pbuff = '\0';
-	
-    memset(msg, 0, len);
-	strncpy (msg, pbuff, strlen (pbuff));
+		buff[i++] = msg[index];
+	buff[i] = '\0';
 
-	for (index = 0; index < MAXCONNQ; index++)	/*目标IP和已连接客户端IP对比，如果存在则返回其sockfd */
-		if (strncmp (ip, inet_ntoa (env->sockinfo[index].ipaddr), strlen (ip)) == 0)
-			return env->sockinfo[index].sockfd;
+    //i = sizeof(msg);  /*避免产生警告*/
+    bzero(msg, sizeof(char)*MAXLINE);
+	strncpy (msg, buff, strlen (buff));
+
+	for (index = 0; index < FD_SETSIZE; index++)	/*目标IP、port和已连接客户端对比，如果存在则返回其sockfd */
+    {
+        if (clients[index].isempty != 0 && strncmp(ip, clients[index].ip, strlen(ip)) == 0 && atoi(port) == clients[index].port)
+            return index;
+        if (index == maxfd)
+            break;
+    }
 
 	return -1;
 }
 
-/*cliaddr用于客户端IP地址传递*/
-void childproc (int sockfd, struct in_addr cliaddr, struct envinfo *env)
+/* childproc
+ * 函数功能：转发消息
+ * 详细：将消息群发或者发到特定的sockfd客户端中
+ * */
+void childproc (int sockfd, int maxfd, struct clientinfo *clients, char *message, int msg_len)
 {								/*对已连接的客户端的数据收发处理 */
-	char buff[BUFSIZ] = { 0 };
-	char msg[BUFSIZ] = { 0 };
-    char welcome[] = "welcome login";
-	int len = 0;
+	char msg[MAXLINE] = { 0 };
 	int index;
-	int chatfd;
-    int semid;
-    int value;
+	int chatfd = 0;
 
-    if ((semid = chat_sem_open(SEMPATH, 0, IPC_CREAT | 0666)) == -1)
-        error_delt("sem_open error", __LINE__);
-
-    if ((value = chat_sem_getvalue(semid)) == -1)
-        error_delt("sem_getvalue error", __LINE__);
-
-    printf("child: semvalue %d\n", value);
-
-    if (write(sockfd, welcome, strlen(welcome)) == -1)
-        error_delt("write error", __LINE__);
-
-	while (1)
-	{
-		memset (msg, 0, sizeof (msg));
-		memset (buff, 0, sizeof (buff));
-		if ((len = read (sockfd, buff, BUFSIZ)) >= 0)
-		{
-			buff[len] = '\0';
-	 		snprintf (msg, sizeof (msg), "<%s>:%s\n", inet_ntoa (cliaddr), buff);
-          
-    /*需要加锁 */
-             chat_sem_wait(semid);
-
-			if (len == 0)
-				break;			/*客户端关闭 */
-			else if ((chatfd = msg_explain (buff, len, env)) == -1)
-			{
-	 			for (index = 0; index < env->counter && env->sockinfo[index].sockfd != sockfd; index++)
-				{				/*把消息发送给所有客户端，除了sockfd客户端 */
-	 				write (env->sockinfo[index].sockfd, msg, strlen (msg));	/*需要全局变量struct sockinfo *env */
-				}
-			}
-			else
-			{					/*私聊 */
-				write (chatfd, msg, strlen (msg));
-			}
-            chat_sem_post(semid);
-    /*需要加锁 */
-		}  
-		else
-		{
-		 	printf ("read error\n");
-			continue;
-		}
-    }
-    /*需要加锁 */
-    chat_sem_wait(semid);
-    for (index = 0; index < env->counter; index++)
-    { 
-        if (env->sockinfo[index].sockfd == sockfd)
-        {
-            memset (&(env->sockinfo[index]), 0, sizeof (struct sock));
-            env->counter--;
-            break;
+    if ((chatfd = msg_explain(message, msg_len, clients, maxfd)) == -1)
+    {
+        memset(msg, 0, sizeof(msg));
+        snprintf (msg, sizeof (msg), "<%s:%d>%s", clients[sockfd].ip, clients[sockfd].port, message);      
+        for (index = 0; index < FD_SETSIZE ; index++)
+        {				/*把消息发送给所有客户端，除了sockfd客户端 */
+            if (clients[index].isempty == 0 || index == sockfd)
+                continue;
+            write (index, msg, strlen (msg));
+            if (index == maxfd)
+                break;
         }
+    }else
+    {	/*私聊 */
+        memset(msg, 0, sizeof(msg));
+        snprintf (msg, sizeof (msg), "<%s:%d>%s", clients[sockfd].ip, clients[sockfd].port, message);      
+        write (chatfd, msg, strlen (msg));
     }
-    chat_sem_post(semid);
-    /*需要加锁 */
-
-	printf ("client:<%s> quit\n", inet_ntoa (cliaddr));
-	close (sockfd);
-}
+}  
 

@@ -49,6 +49,7 @@ void str_cli(FILE *fp, int sockfd)
         /*-------------------send message----------------------------------*/
         if (FD_ISSET(fileno(fp), &rset)) /* input is readable*/
         {
+            memset(buf, 0, sizeof(buf));
             if ((n = read(fileno(fp), buf, MAXLINE)) == 0)
             {
                 stdineof = 1;
@@ -58,8 +59,8 @@ void str_cli(FILE *fp, int sockfd)
             }
             if (strncmp(buf, "exit", 4) == 0)
             {
-                write(sockfd, "client:logout", strlen("client:logout"));
-                break;
+                write(sockfd, "Bye\n", strlen("Bye\n"));
+                return;
             }
             write(sockfd, buf, n);
         }

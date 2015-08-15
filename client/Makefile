@@ -11,7 +11,7 @@ OBJS := $(patsubst %.c,%.o, $(SOURCES))
 .c.o:
 		$(CC) -c  $(CFLAGS)   $< -o $@
 
-LIBS := -lpthread 
+LIBS +=  
 $(TARGET):$(OBJS)
 		$(CC) -o $@ $(OBJS) $(HEADERS) $(LIBS)
 

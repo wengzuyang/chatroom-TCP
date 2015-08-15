@@ -3,13 +3,15 @@
  * */
 #include "server.h"
 
+const char welcome[] = "------welcome to lean's chatroot------\n";
 int main ()
 {
-	int listenfd, connfd, value, maxfd, maxi, i, n;
+	int listenfd, connfd, maxfd, maxi, i, n;
 	int nready, client[FD_SETSIZE] = {0};
     fd_set rset, allset;
     char buf[MAXLINE] = {0};
 
+    struct clientinfo clients_info[FD_SETSIZE];
 	struct sockaddr_in cliaddr;
 	socklen_t clilen;
 
@@ -19,7 +21,10 @@ int main ()
     maxi = -1;
 
     for (i = 0; i < FD_SETSIZE; i++)
+    {
         client[i] = -1;
+        clients_info[i].isempty = 0;   /*零为空*/
+    }
 
     FD_ZERO(&allset);
     FD_SET(listenfd, &allset);
@@ -27,11 +32,13 @@ int main ()
 	while (1)
 	{
         rset = allset;
-        nready = select(maxfd + 1, &rset, NULL, NULL, NULL);
+        if ((nready = select(maxfd + 1, &rset, NULL, NULL, NULL)) == 0)
+            continue;
+
         if (FD_ISSET(listenfd, &rset))
         {
             clilen = sizeof (cliaddr);
-            if ((connfd = accept (listenfd, (struct sockaddr *) &cliaddr, &clilen)) < 0)
+            if ((connfd = accept (listenfd, (struct sockaddr *) &cliaddr, &clilen)) < 0 || connfd == listenfd)
             {
                 if (errno == EINTR)
                     continue;
@@ -47,6 +54,10 @@ int main ()
                 }
             if (i == FD_SETSIZE)
                 error_delt("too many clients", __LINE__);
+            
+            write(connfd, welcome, strlen(welcome));
+
+            printf ("client:%s:%d login\n", inet_ntoa (cliaddr.sin_addr), ntohs(cliaddr.sin_port));
 
             FD_SET(connfd, &allset);  /*add new client to set */
             if (connfd > maxfd)
@@ -54,28 +65,38 @@ int main ()
             if (i > maxi)
                 maxi = i;
 
-            if (--nready <= 0)
+            if (clients_info[connfd].isempty == 0 )
+            {
+                clients_info[connfd].port = ntohs(cliaddr.sin_port);
+                strncpy(clients_info[connfd].ip, inet_ntoa(cliaddr.sin_addr), strlen(inet_ntoa(cliaddr.sin_addr)));
+                clients_info[connfd].isempty = -1;
+            } else
                 continue;
 
-            printf ("client:%s login\n", inet_ntoa (cliaddr.sin_addr));
+            if (--nready <= 0)
+                continue;
         }
 
         for (i = 0; i <= maxi; i++)
         {
-            if ((connfd = client[i]) < 0)
+             if ((connfd = client[i]) < 0)
                 continue;
             if (FD_ISSET(connfd, &rset))
             {
-                if ((n = read(connfd, buf, MAXLINE)) == 0)
+                memset(buf, 0, sizeof(buf));
+                if ((n = read(connfd, buf, MAXLINE)) == 0)  /*读取客户端发送的消息*/
                 {
                     close(connfd);
                     FD_CLR(connfd, &allset);
                     client[i] = -1;
-                } else
-                    write(connfd, buf, n);
+                    
+                    printf("client:%s:%d logout!\n", clients_info[connfd].ip, clients_info[connfd].port);
+                    clients_info[connfd].isempty = 0;
+                } else  /*转发*/
+                    childproc(connfd, maxfd, clients_info, buf, n);
 
                 if (--nready <= 0)     /*no more readable messgae*/
-                    break;
+                     break;
             }
         }
 	}

@@ -21,9 +21,14 @@
 #define SEMPATH  ".."
 #define SHM_SIZE sizeof(struct envinfo)
 
+struct clientinfo {
+    int isempty;
+    int port;
+    char  ip[16];
+};
 
 struct sock{
-    int sockfd;
+     int sockfd;
     struct in_addr ipaddr;
 };
 
@@ -35,8 +40,8 @@ struct envinfo{
 void error_delt(const char *err, int line);
 void sig_child(int signo);
 int servinit();
-int msg_explain(char *msg, int len, struct envinfo *env);
-void childproc(int sockfd, struct in_addr cliaddr, struct envinfo *env);
+int msg_explain(char *msg, int len, struct clientinfo *clients, int maxfd);
+void childproc(int sockfd, int maxfd, struct clientinfo *clients, char *message, int msg_len);
 
 
 
