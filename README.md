@@ -1,1 +1,3 @@
-The progrem's function is make a chat with each others on different computer.
+#Chatroom
+---------------------
+基于TCP的聊天程序
