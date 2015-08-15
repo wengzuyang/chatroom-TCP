@@ -1,7 +1,6 @@
-#include <sys/shm.h>
-#define PROJID 98765 
+#include "chat_shm.h"
 
-int shm_open(const char *filename, size_t size, int flag)
+int chat_shm_open(const char *filename, size_t size, int flag)
 {
     key_t key;
     int shmid;

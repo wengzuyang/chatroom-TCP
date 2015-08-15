@@ -1,100 +1,83 @@
 /*main.c
  * chatroom程序sever端
  * */
-#include "../include/chatroom.h"
 #include "server.h"
-#include "sem_h.h"
-#include "shm_h.h"
 
 int main ()
 {
-	int listenfd, connfd, shmid, semid, value;
-	int tmpcount = 0;
-    pid_t childpid;
+	int listenfd, connfd, value, maxfd, maxi, i, n;
+	int nready, client[FD_SETSIZE] = {0};
+    fd_set rset, allset;
+    char buf[MAXLINE] = {0};
+
 	struct sockaddr_in cliaddr;
-    struct envinfo * env;
 	socklen_t clilen;
-
-	signal (SIGCHLD, sig_child);	/*捕捉SIGCHLD信号 */
-    signal (SIGINT, sig_child);
-/*
-    env = (struct envinfo *)malloc(sizeof(struct envinfo));  
-	memset (env, 0, sizeof (struct envinfo));
-*/
-    if((shmid = shm_open(SHMPATH, SHM_SIZE, IPC_CREAT | 0666)) == -1)
-        error_delt("shm_open error", __LINE__);
-
-    if((env = shmat(shmid, (struct envinfo *)0, 0)) == (struct envinfo *)-1)
-        error_delt("shmat falied", __LINE__);
-
-    if((semid = sem_open(SEMPATH, 1,  IPC_CREAT | 0666)) == -1)
-        error_delt("sem_open error", __LINE__);
-
-    if ((value = sem_getvalue(semid)) == -1)
-        error_delt("sem_getvalue error", __LINE__);
-
-    printf("sem_value %d\n", value);
 
 	/*初始化，完成创建绑定监听等工作 */
 	listenfd = servinit ();
+    maxfd = listenfd;
+    maxi = -1;
+
+    for (i = 0; i < FD_SETSIZE; i++)
+        client[i] = -1;
+
+    FD_ZERO(&allset);
+    FD_SET(listenfd, &allset);
+
 	while (1)
 	{
-		clilen = sizeof (cliaddr);
-		if ((connfd = accept (listenfd, (struct sockaddr *) &cliaddr, &clilen)) < 0)
-		{
-			if (errno == EINTR)
-				continue;
-			else
-				error_delt ("accept error", __LINE__);
-		}
-		if (env->counter >= MAXCONNQ)
-			continue;
+        rset = allset;
+        nready = select(maxfd + 1, &rset, NULL, NULL, NULL);
+        if (FD_ISSET(listenfd, &rset))
+        {
+            clilen = sizeof (cliaddr);
+            if ((connfd = accept (listenfd, (struct sockaddr *) &cliaddr, &clilen)) < 0)
+            {
+                if (errno == EINTR)
+                    continue;
+                else
+                    error_delt ("accept error", __LINE__);
+            }
 
-        sem_wait(semid);
+            for (i = 0; i < FD_SETSIZE; i++)
+                if (client[i] < 0)
+                {
+                    client[i] = connfd;
+                    break;
+                }
+            if (i == FD_SETSIZE)
+                error_delt("too many clients", __LINE__);
 
-		env->sockinfo[env->counter].sockfd = connfd;
-		memcpy (&(env->sockinfo[env->counter].ipaddr), &cliaddr.sin_addr, sizeof (cliaddr.sin_addr));
-        env->counter++;
+            FD_SET(connfd, &allset);  /*add new client to set */
+            if (connfd > maxfd)
+                maxfd = connfd;
+            if (i > maxi)
+                maxi = i;
 
-        sem_post(semid);
-        
-        for(tmpcount = 0; tmpcount < env->counter; tmpcount++)
-        printf("env: counter %d sockfd %d ipaddr %s\n", env->counter, env->sockinfo[tmpcount].sockfd, inet_ntoa(env->sockinfo[tmpcount].ipaddr));
+            if (--nready <= 0)
+                continue;
 
-		printf ("client:%s login\n", inet_ntoa (cliaddr.sin_addr));
-		
-        childpid = fork ();
-		switch (childpid)
-		{
-		case 0:  /*子进程*/ 
-			close (listenfd);
-	/*		sleep (60); */  /*用于调试子进程*/
-            struct envinfo *shmaddr = (struct envinfo *)shmat(shmid, NULL, 0);
-		
-            childproc (connfd, cliaddr.sin_addr, shmaddr);
-           
-            shmdt(shmaddr);
-			exit (EXIT_SUCCESS);
-			break;
-		case -1:
-			error_delt ("fork", __LINE__);
-			break;
-		default:
-            
-          /*  if (env->counter - 1 != 0)  */ /*延迟关闭connfd，避免新的连接时会出现相同的套接字描述符*/
-          /*      close (env->sockinfo[env->counter - 1].sockfd); */
-            
-            break;
-		}
+            printf ("client:%s login\n", inet_ntoa (cliaddr.sin_addr));
+        }
+
+        for (i = 0; i <= maxi; i++)
+        {
+            if ((connfd = client[i]) < 0)
+                continue;
+            if (FD_ISSET(connfd, &rset))
+            {
+                if ((n = read(connfd, buf, MAXLINE)) == 0)
+                {
+                    close(connfd);
+                    FD_CLR(connfd, &allset);
+                    client[i] = -1;
+                } else
+                    write(connfd, buf, n);
+
+                if (--nready <= 0)     /*no more readable messgae*/
+                    break;
+            }
+        }
 	}
-
-    if (setjmp(jmpbuffer) != 0)
-    {
-        for (tmpcount = 0; tmpcount < env -> counter ; tmpcount++)
-            close(env->sockinfo[tmpcount].sockfd);
-/*        free(env); */
-        semctl(semid, 0, IPC_RMID);
-        shmctl(shmid, IPC_RMID, 0);
-    }
-	return 0;
+    return 0;
 }

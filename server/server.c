@@ -5,18 +5,23 @@
  *必须包含的功能:可群聊，也可私聊(发送消息时以<IPaddr>或<port>或其<sockfd>开头) (port或者sockfd就会成匿名聊天了)
  *考虑拓展的功能:服务端也可发送消息
  * */
-#include "../include/chatroom.h"
 #include "server.h"
-#include "sem_h.h"
+#include "chat_sem.h"
+#include "chat_shm.h"
+
+void error_delt(const char *err, int line)
+{
+    fprintf(stderr, "line %d ", line);
+    perror(err);
+    exit(EXIT_FAILURE);
+}
 
 void sig_child (int signo)
 {								/*等待子进程结束并处理善后工作 */
 	pid_t pid;
 	int stat;
-	int index;
 
     if (signo == SIGINT)
-        longjmp(jmpbuffer, 1);
 	/*WNOHANG项设置在有尚未终止的子进程在运行前不要堵塞 */
 	while ((pid = waitpid (-1, &stat, WNOHANG)) > 0)
 	{
@@ -35,13 +40,13 @@ int servinit ()
 	bzero (&servaddr, sizeof (servaddr));
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_addr.s_addr = htonl (INADDR_ANY);
-	servaddr.sin_port = htons (4507);
+	servaddr.sin_port = htons (SERVER_PORT);
 
 	if (bind (listenfd, (struct sockaddr *) &servaddr, sizeof (servaddr)) == -1)
 	{
 		error_delt ("bind error", __LINE__); 
     } 
-	if (listen (listenfd, 5) == -1)
+	if (listen (listenfd, MAX_LISTEN) == -1)
 	{
 		error_delt ("listen error", __LINE__);
 	}
@@ -71,10 +76,12 @@ int msg_explain (char *msg, int len, struct envinfo *env)
 	if (msg[index] != '>')		/*只有"<"标志而没有">" */
 		return -1;
 
+    /*获取除去IP地址后的消息*/
 	for (index = index + 1; index < len; index++)
 		*pbuff++ = msg[index];
 	*pbuff = '\0';
-	memset (msg, 0, sizeof (msg));
+	
+    memset(msg, 0, len);
 	strncpy (msg, pbuff, strlen (pbuff));
 
 	for (index = 0; index < MAXCONNQ; index++)	/*目标IP和已连接客户端IP对比，如果存在则返回其sockfd */
@@ -93,13 +100,13 @@ void childproc (int sockfd, struct in_addr cliaddr, struct envinfo *env)
 	int len = 0;
 	int index;
 	int chatfd;
-    int semid, shmid;
+    int semid;
     int value;
 
-    if ((semid = sem_open(".", 0, IPC_CREAT | 0666)) == -1)
+    if ((semid = chat_sem_open(SEMPATH, 0, IPC_CREAT | 0666)) == -1)
         error_delt("sem_open error", __LINE__);
 
-    if ((value = sem_getvalue(semid)) == -1)
+    if ((value = chat_sem_getvalue(semid)) == -1)
         error_delt("sem_getvalue error", __LINE__);
 
     printf("child: semvalue %d\n", value);
@@ -114,35 +121,35 @@ void childproc (int sockfd, struct in_addr cliaddr, struct envinfo *env)
 		if ((len = read (sockfd, buff, BUFSIZ)) >= 0)
 		{
 			buff[len] = '\0';
-			snprintf (msg, sizeof (msg), "<%s>:%s\n", inet_ntoa (cliaddr), buff);
+	 		snprintf (msg, sizeof (msg), "<%s>:%s\n", inet_ntoa (cliaddr), buff);
           
     /*需要加锁 */
-            sem_wait(semid);
+             chat_sem_wait(semid);
 
 			if (len == 0)
 				break;			/*客户端关闭 */
 			else if ((chatfd = msg_explain (buff, len, env)) == -1)
 			{
-				for (index = 0; index < env->counter && env->sockinfo[index].sockfd != sockfd; index++)
+	 			for (index = 0; index < env->counter && env->sockinfo[index].sockfd != sockfd; index++)
 				{				/*把消息发送给所有客户端，除了sockfd客户端 */
-					write (env->sockinfo[index].sockfd, msg, strlen (msg));	/*需要全局变量struct sockinfo *env */
+	 				write (env->sockinfo[index].sockfd, msg, strlen (msg));	/*需要全局变量struct sockinfo *env */
 				}
 			}
 			else
 			{					/*私聊 */
 				write (chatfd, msg, strlen (msg));
 			}
-            sem_post(semid);
+            chat_sem_post(semid);
     /*需要加锁 */
-		}
+		}  
 		else
 		{
-			printf ("read error\n");
+		 	printf ("read error\n");
 			continue;
 		}
     }
     /*需要加锁 */
-    sem_wait(semid);
+    chat_sem_wait(semid);
     for (index = 0; index < env->counter; index++)
     { 
         if (env->sockinfo[index].sockfd == sockfd)
@@ -152,9 +159,10 @@ void childproc (int sockfd, struct in_addr cliaddr, struct envinfo *env)
             break;
         }
     }
-    sem_post(semid);
+    chat_sem_post(semid);
     /*需要加锁 */
 
 	printf ("client:<%s> quit\n", inet_ntoa (cliaddr));
 	close (sockfd);
 }
+
