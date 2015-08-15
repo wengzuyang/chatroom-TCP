@@ -65,7 +65,7 @@ int msg_explain (char *msg, int len, struct clientinfo *clients, int maxfd)
     char buff[MAXLINE] = {0};
 	int index, i;
 
-	if (msg[0] != '<')			/*没有<ipaddr>，说明群聊 */
+	if (msg[0] != '<')			/*没有<ip:port>，说明群聊 */
 		return -1;
 
 	for (index = 1; index <= 16 && index < len; index++)
