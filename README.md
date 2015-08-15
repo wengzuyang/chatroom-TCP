@@ -23,6 +23,6 @@ make
 ##说明
 
 > * 端口默认为**4507**，可以通过修改**client.h**和**server.h**文件中的**SERVER_PORT**
-> * 私聊:```<ip:port>message```,如<192.168.0.11:4567>hello   
+> * 私聊:```<ip:port>message```,如\<192.168.0.11:4567\>hello   
 > * 退出:直接输入```exit```
  
