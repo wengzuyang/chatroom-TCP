@@ -59,8 +59,8 @@ void str_cli(FILE *fp, int sockfd)
             }
             if (strncmp(buf, "exit", 4) == 0)
             {
-                write(sockfd, "Bye\n", strlen("Bye\n"));
-                return;
+                write(sockfd, "Bye\n", strlen("Bye\n"));    
+                return;                                     /*断开连接接收不到第4次握手的可能原因*/
             }
             write(sockfd, buf, n);
         }

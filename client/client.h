@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 
 #define MAXLINE 1024
-#define SERVER_PORT 4507
+#define SERVER_PORT 4507 
 
 int max(int num1, int num2);
 void str_cli(FILE *fp, int sockfd);

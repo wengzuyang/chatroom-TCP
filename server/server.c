@@ -40,6 +40,7 @@ int servinit ()
 	bzero (&servaddr, sizeof (servaddr));
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    /* inet_pton(AF_INET, "192.168.8.1", &servaddr.sin_addr); */
 	servaddr.sin_port = htons (SERVER_PORT);
 
 	if (bind (listenfd, (struct sockaddr *) &servaddr, sizeof (servaddr)) == -1)
@@ -126,13 +127,11 @@ void childproc (int sockfd, int maxfd, struct clientinfo *clients, char *message
     {
         memset(msg, 0, sizeof(msg));
         snprintf (msg, sizeof (msg), "<%s:%d>%s", clients[sockfd].ip, clients[sockfd].port, message);      
-        for (index = 0; index < FD_SETSIZE ; index++)
+        for (index = 0; index <= maxfd ; index++)
         {				/*把消息发送给所有客户端，除了sockfd客户端 */
             if (clients[index].isempty == 0 || index == sockfd)
                 continue;
             write (index, msg, strlen (msg));
-            if (index == maxfd)
-                break;
         }
     }else
     {	/*私聊 */

@@ -3,7 +3,7 @@
  * */
 #include "server.h"
 
-const char welcome[] = "------welcome to lean's chatroot------\n";
+const char welcome[] = "------welcome to lean's chatroom------\n";
 int main ()
 {
 	int listenfd, connfd, maxfd, maxi, i, n;
@@ -19,6 +19,7 @@ int main ()
 	listenfd = servinit ();
     maxfd = listenfd;
     maxi = -1;
+    n = -1;
 
     for (i = 0; i < FD_SETSIZE; i++)
     {
@@ -83,7 +84,7 @@ int main ()
                 continue;
             if (FD_ISSET(connfd, &rset))
             {
-                memset(buf, 0, sizeof(buf));
+                memset(buf, 0, sizeof(buf));           /*清空buffer，防止读取长字符串后再读取短字符串时，短字符串覆盖不了多出来的字符串*/
                 if ((n = read(connfd, buf, MAXLINE)) == 0)  /*读取客户端发送的消息*/
                 {
                     close(connfd);
